@@ -4,6 +4,7 @@ brew "wget"
 brew "htop"
 brew "gping"
 brew "zsh"
+brew "cloudflared"
 
 
 # package managers / dev
