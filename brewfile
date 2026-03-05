@@ -1,0 +1,14 @@
+# cli
+brew "git"
+brew "wget"
+brew "htop"
+brew "gping"
+
+
+# package managers / dev
+#brew "mas"
+
+# gui
+cask "visual-studio-code"
+#cask "iterm2"
+cask "google-chrome"
