@@ -65,21 +65,27 @@ ensure_clt() {
 ############################################
 ensure_homebrew() {
 
-    if command -v brew >/dev/null 2>&1; then
+    if [ -x "/opt/homebrew/bin/brew" ]; then
+        eval "$(/opt/homebrew/bin/brew shellenv)"
+        log "Homebrew already installed."
+        return
+    fi
+
+    if [ -x "/usr/local/bin/brew" ]; then
+        eval "$(/usr/local/bin/brew shellenv)"
         log "Homebrew already installed."
         return
     fi
 
     log "Installing Homebrew..."
 
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    /bin/bash -c \
+        "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-    # Apple Silicon path
-    if [ -d "/opt/homebrew/bin" ]; then
-        if ! grep -q 'brew shellenv' "$HOME/.zshrc" 2>/dev/null; then
-            echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> "$HOME/.zshrc"
-        fi
+    if [ -x "/opt/homebrew/bin/brew" ]; then
         eval "$(/opt/homebrew/bin/brew shellenv)"
+    elif [ -x "/usr/local/bin/brew" ]; then
+        eval "$(/usr/local/bin/brew shellenv)"
     fi
 
     log "Homebrew installed."
