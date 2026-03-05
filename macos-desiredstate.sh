@@ -38,18 +38,22 @@ ensure_clt() {
         return
     fi
 
-    log "Command Line Tools not found."
-    log "Starting installation..."
+    log "Installing Command Line Tools via softwareupdate..."
 
-    xcode-select --install || true
+    CLT_LABEL=$(softwareupdate -l 2>/dev/null | \
+        grep -B 1 "Command Line Tools" | \
+        awk -F"* " '/\*/ {print $2}' | \
+        head -n1)
 
-    log "Waiting for Command Line Tools to finish installing..."
+    if [[ -n "$CLT_LABEL" ]]; then
+        sudo softwareupdate -i "$CLT_LABEL" --verbose
+    else
+        log "No Command Line Tools update found."
+        log "You may need to install manually."
+        exit 1
+    fi
 
-    until xcode-select -p >/dev/null 2>&1; do
-        sleep 15
-    done
-
-    log "Command Line Tools installed."
+    log "Command Line Tools installation complete."
 }
 
 ############################################
