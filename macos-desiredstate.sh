@@ -4,18 +4,19 @@ set -euo pipefail
 
 ############################################
 # macos-desiredstate.sh
-# Ensures macOS matches desired state
+# Curl-native desired state for macOS
 ############################################
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BREWFILE="${SCRIPT_DIR}/Brewfile"
+REPO_RAW_BASE="https://raw.githubusercontent.com/p3rss0n/public/main"
+TMP_DIR="/tmp/macos-desiredstate"
+BREWFILE="$TMP_DIR/Brewfile"
 
 log() {
     printf "\n[%s] %s\n" "$(date '+%H:%M:%S')" "$1"
 }
 
 ############################################
-# Safety check - do not run as root
+# Prevent running as root
 ############################################
 if [[ "$EUID" -eq 0 ]]; then
     echo "Do not run this script with sudo."
@@ -23,7 +24,12 @@ if [[ "$EUID" -eq 0 ]]; then
 fi
 
 ############################################
-# Ensure Xcode Command Line Tools
+# Ensure temporary working directory
+############################################
+mkdir -p "$TMP_DIR"
+
+############################################
+# Ensure Command Line Tools
 ############################################
 ensure_clt() {
 
@@ -61,7 +67,6 @@ ensure_homebrew() {
     NONINTERACTIVE=1 /bin/bash -c \
         "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-    # Apple Silicon path
     if [[ -d "/opt/homebrew/bin" ]]; then
         if ! grep -q 'brew shellenv' "$HOME/.zshrc" 2>/dev/null; then
             echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> "$HOME/.zshrc"
@@ -73,7 +78,7 @@ ensure_homebrew() {
 }
 
 ############################################
-# Ensure Rosetta (Apple Silicon only)
+# Ensure Rosetta (Apple Silicon)
 ############################################
 ensure_rosetta() {
 
@@ -91,12 +96,21 @@ ensure_rosetta() {
 }
 
 ############################################
+# Fetch Brewfile from GitHub
+############################################
+fetch_brewfile() {
+
+    log "Fetching Brewfile from GitHub..."
+    curl -fsSL "$REPO_RAW_BASE/Brewfile" -o "$BREWFILE"
+}
+
+############################################
 # Sync Brewfile
 ############################################
 ensure_brew_bundle() {
 
     if [[ ! -f "$BREWFILE" ]]; then
-        log "No Brewfile found at $BREWFILE"
+        log "Brewfile not found."
         return
     fi
 
@@ -147,6 +161,7 @@ main() {
     ensure_clt
     ensure_homebrew
     ensure_rosetta
+    fetch_brewfile
     ensure_brew_bundle
     ensure_mas_login
     cleanup
