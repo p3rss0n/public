@@ -1,86 +1,108 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
+set -x
 
 ############################################
-# macos-desiredstate.sh
-# macOS Desired State - curl compatible
+# macos desired state - debug mode
 ############################################
 
-REPO_RAW_BASE="https://raw.githubusercontent.com/p3rss0n/public/main"
-TMP_DIR="/tmp/macos-desiredstate"
-BREWFILE="$TMP_DIR/Brewfile"
+repo_raw_base="https://raw.githubusercontent.com/p3rss0n/public/main"
+tmp_dir="/tmp/macos-desiredstate"
+brewfile="$tmp_dir/brewfile"
 
 log() {
     printf "\n[%s] %s\n" "$(date '+%H:%M:%S')" "$1"
 }
 
 ############################################
-# Prevent running as root
+# prevent running as root
 ############################################
-if [ "$EUID" -eq 0 ]; then
-    echo "Do not run this script with sudo."
+if [ "$euid" = "0" ] 2>/dev/null; then
+    echo "do not run this script with sudo."
     exit 1
 fi
 
 ############################################
-# Ensure temp directory
+# ensure temp directory
 ############################################
-mkdir -p "$TMP_DIR"
+log "creating temp dir: $tmp_dir"
+mkdir -p "$tmp_dir"
+ls -ld "$tmp_dir"
 
 ############################################
-# Ensure Command Line Tools (Homebrew method)
+# ensure command line tools (brew method)
 ############################################
 ensure_clt() {
 
+    log "checking command line tools..."
+
     if xcode-select -p >/dev/null 2>&1; then
-        log "Command Line Tools already installed."
+        log "command line tools already installed."
+        xcode-select -p
         return
     fi
 
-    log "Installing Command Line Tools (Homebrew method)..."
+    log "triggering clt install via softwareupdate"
 
     sudo touch /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
 
-    CLT_LABEL=$(softwareupdate -l 2>/dev/null \
+    log "available software updates:"
+    softwareupdate -l || true
+
+    clt_label=$(
+        softwareupdate -l 2>/dev/null \
         | grep "Command Line Tools" \
         | sed -e 's/^ *\* *//' \
-        | head -n 1)
+        | head -n 1
+    )
 
-    if [ -n "$CLT_LABEL" ]; then
-        sudo softwareupdate -i "$CLT_LABEL" --verbose
+    log "detected clt label: $clt_label"
+
+    if [ -n "$clt_label" ]; then
+        log "installing: $clt_label"
+        sudo softwareupdate -i "$clt_label" --verbose
         sudo rm -f /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
-        log "Command Line Tools installed."
+        log "clt installation complete."
     else
         sudo rm -f /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
-        log "Command Line Tools not available via softwareupdate."
-        log "Falling back to interactive installer."
+        log "clt not available via softwareupdate"
+        log "falling back to interactive installer"
         xcode-select --install
         exit 1
     fi
 }
 
 ############################################
-# Ensure Homebrew
+# ensure homebrew
 ############################################
 ensure_homebrew() {
 
+    log "checking homebrew presence"
+
     if [ -x "/opt/homebrew/bin/brew" ]; then
         eval "$(/opt/homebrew/bin/brew shellenv)"
-        log "Homebrew already installed."
+        log "brew found at /opt/homebrew"
+        brew --version
         return
     fi
 
     if [ -x "/usr/local/bin/brew" ]; then
         eval "$(/usr/local/bin/brew shellenv)"
-        log "Homebrew already installed."
+        log "brew found at /usr/local"
+        brew --version
         return
     fi
 
-    log "Installing Homebrew..."
+    log "brew not found. installing..."
+    log "downloading from: https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
 
-    /bin/bash -c \
-        "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    curl -v -f -L https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o "$tmp_dir/brew-install.sh"
+
+    log "downloaded to $tmp_dir/brew-install.sh"
+    ls -l "$tmp_dir/brew-install.sh"
+
+    /bin/bash "$tmp_dir/brew-install.sh"
 
     if [ -x "/opt/homebrew/bin/brew" ]; then
         eval "$(/opt/homebrew/bin/brew shellenv)"
@@ -88,91 +110,107 @@ ensure_homebrew() {
         eval "$(/usr/local/bin/brew shellenv)"
     fi
 
-    log "Homebrew installed."
+    log "brew installation complete"
+    brew --version
 }
 
 ############################################
-# Ensure Rosetta (Apple Silicon only)
+# ensure rosetta (arm only)
 ############################################
 ensure_rosetta() {
 
-    ARCH=$(uname -m)
+    arch=$(uname -m)
+    log "architecture detected: $arch"
 
-    if [ "$ARCH" != "arm64" ]; then
+    if [ "$arch" != "arm64" ]; then
+        log "not arm64. skipping rosetta."
         return
     fi
 
     if /usr/bin/pgrep oahd >/dev/null 2>&1; then
-        log "Rosetta already installed."
+        log "rosetta already installed."
         return
     fi
 
-    log "Installing Rosetta..."
+    log "installing rosetta"
     sudo softwareupdate --install-rosetta --agree-to-license || true
 }
 
 ############################################
-# Fetch Brewfile from GitHub
+# fetch brewfile from github
 ############################################
 fetch_brewfile() {
 
-    log "Fetching Brewfile from GitHub..."
-    curl -fsSL "$REPO_RAW_BASE/Brewfile" -o "$BREWFILE"
+    brewfile_url="$repo_raw_base/brewfile"
+
+    log "fetching brewfile from: $brewfile_url"
+
+    curl -v -f -L "$brewfile_url" -o "$brewfile"
+
+    log "brewfile saved to: $brewfile"
+    ls -l "$brewfile"
+
+    log "brewfile content:"
+    cat "$brewfile"
 }
 
 ############################################
-# Sync Brewfile
+# sync brewfile
 ############################################
 ensure_brew_bundle() {
 
-    if [ ! -f "$BREWFILE" ]; then
-        log "Brewfile not found."
+    if [ ! -f "$brewfile" ]; then
+        log "brewfile missing. skipping bundle."
         return
     fi
 
-    log "Updating Homebrew..."
+    log "running brew update"
     brew update
+
+    log "running brew upgrade"
     brew upgrade
 
-    log "Reconciling Brewfile..."
-    brew bundle --file="$BREWFILE"
+    log "running brew bundle"
+    brew bundle --file="$brewfile" --verbose
 
-    log "Brewfile sync complete."
+    log "brew bundle finished"
 }
 
 ############################################
-# Ensure MAS login
+# mas login check
 ############################################
 ensure_mas_login() {
 
     if ! command -v mas >/dev/null 2>&1; then
+        log "mas not installed"
         return
     fi
 
     if mas account >/dev/null 2>&1; then
-        log "App Store account detected."
+        log "mas account detected"
     else
-        log "Not logged into App Store."
-        log "Please open App Store and login manually."
+        log "no mas login detected"
     fi
 }
 
 ############################################
-# Cleanup
+# cleanup
 ############################################
 cleanup() {
 
-    log "Cleaning up Homebrew..."
+    log "running brew autoremove"
     brew autoremove || true
+
+    log "running brew cleanup"
     brew cleanup || true
 }
 
 ############################################
-# Main
+# main
 ############################################
 main() {
 
-    log "Starting macOS desired state reconciliation"
+    log "starting macos desired state (full debug)"
 
     ensure_clt
     ensure_homebrew
@@ -182,7 +220,7 @@ main() {
     ensure_mas_login
     cleanup
 
-    log "macOS desired state complete."
+    log "macos desired state complete"
 }
 
 main "$@"
