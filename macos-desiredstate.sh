@@ -4,7 +4,7 @@ set -euo pipefail
 
 ############################################
 # macos-desiredstate.sh
-# Curl-native desired state for macOS
+# macOS Desired State - curl compatible
 ############################################
 
 REPO_RAW_BASE="https://raw.githubusercontent.com/p3rss0n/public/main"
@@ -18,18 +18,18 @@ log() {
 ############################################
 # Prevent running as root
 ############################################
-if [[ "$EUID" -eq 0 ]]; then
+if [ "$EUID" -eq 0 ]; then
     echo "Do not run this script with sudo."
     exit 1
 fi
 
 ############################################
-# Ensure temporary working directory
+# Ensure temp directory
 ############################################
 mkdir -p "$TMP_DIR"
 
 ############################################
-# Ensure Command Line Tools
+# Ensure Command Line Tools (Homebrew method)
 ############################################
 ensure_clt() {
 
@@ -38,22 +38,26 @@ ensure_clt() {
         return
     fi
 
-    log "Installing Command Line Tools via softwareupdate..."
+    log "Installing Command Line Tools (Homebrew method)..."
 
-    CLT_LABEL=$(softwareupdate -l 2>/dev/null | \
-        grep -B 1 "Command Line Tools" | \
-        awk -F"* " '/\*/ {print $2}' | \
-        head -n1)
+    sudo touch /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
 
-    if [[ -n "$CLT_LABEL" ]]; then
+    CLT_LABEL=$(softwareupdate -l 2>/dev/null \
+        | grep "Command Line Tools" \
+        | sed -e 's/^ *\* *//' \
+        | head -n 1)
+
+    if [ -n "$CLT_LABEL" ]; then
         sudo softwareupdate -i "$CLT_LABEL" --verbose
+        sudo rm -f /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
+        log "Command Line Tools installed."
     else
-        log "No Command Line Tools update found."
-        log "You may need to install manually."
+        sudo rm -f /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
+        log "Command Line Tools not available via softwareupdate."
+        log "Falling back to interactive installer."
+        xcode-select --install
         exit 1
     fi
-
-    log "Command Line Tools installation complete."
 }
 
 ############################################
@@ -71,7 +75,8 @@ ensure_homebrew() {
     NONINTERACTIVE=1 /bin/bash -c \
         "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-    if [[ -d "/opt/homebrew/bin" ]]; then
+    # Apple Silicon path
+    if [ -d "/opt/homebrew/bin" ]; then
         if ! grep -q 'brew shellenv' "$HOME/.zshrc" 2>/dev/null; then
             echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> "$HOME/.zshrc"
         fi
@@ -82,11 +87,13 @@ ensure_homebrew() {
 }
 
 ############################################
-# Ensure Rosetta (Apple Silicon)
+# Ensure Rosetta (Apple Silicon only)
 ############################################
 ensure_rosetta() {
 
-    if [[ "$(uname -m)" != "arm64" ]]; then
+    ARCH=$(uname -m)
+
+    if [ "$ARCH" != "arm64" ]; then
         return
     fi
 
@@ -113,7 +120,7 @@ fetch_brewfile() {
 ############################################
 ensure_brew_bundle() {
 
-    if [[ ! -f "$BREWFILE" ]]; then
+    if [ ! -f "$BREWFILE" ]; then
         log "Brewfile not found."
         return
     fi
