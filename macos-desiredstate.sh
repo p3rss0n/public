@@ -4,7 +4,7 @@ set -euo pipefail
 set -x
 
 ############################################
-# macos desired state - debug mode
+# macos desired state - full debug
 ############################################
 
 repo_raw_base="https://raw.githubusercontent.com/p3rss0n/public/main"
@@ -31,7 +31,7 @@ mkdir -p "$tmp_dir"
 ls -ld "$tmp_dir"
 
 ############################################
-# ensure command line tools (brew method)
+# ensure command line tools
 ############################################
 ensure_clt() {
 
@@ -47,7 +47,6 @@ ensure_clt() {
 
     sudo touch /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
 
-    log "listing available software updates"
     softwareupdate -l || true
 
     clt_label=$(
@@ -60,14 +59,12 @@ ensure_clt() {
     log "detected clt label: ${clt_label:-none}"
 
     if [ -n "${clt_label:-}" ]; then
-        log "installing ${clt_label}"
         sudo softwareupdate -i "$clt_label" --verbose
         sudo rm -f /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
         log "clt installation complete"
     else
         sudo rm -f /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
         log "clt not available via softwareupdate"
-        log "falling back to interactive installer"
         xcode-select --install
         exit 1
     fi
@@ -82,14 +79,12 @@ ensure_homebrew() {
 
     if [ -x "/opt/homebrew/bin/brew" ]; then
         eval "$(/opt/homebrew/bin/brew shellenv)"
-        log "brew found at /opt/homebrew"
         brew --version
         return
     fi
 
     if [ -x "/usr/local/bin/brew" ]; then
         eval "$(/usr/local/bin/brew shellenv)"
-        log "brew found at /usr/local"
         brew --version
         return
     fi
@@ -97,11 +92,7 @@ ensure_homebrew() {
     log "brew not found, installing"
 
     brew_install_url="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
-    log "downloading brew installer from $brew_install_url"
-
     curl -v -f -L "$brew_install_url" -o "$tmp_dir/brew-install.sh"
-
-    ls -l "$tmp_dir/brew-install.sh"
 
     /bin/bash "$tmp_dir/brew-install.sh"
 
@@ -111,7 +102,6 @@ ensure_homebrew() {
         eval "$(/usr/local/bin/brew shellenv)"
     fi
 
-    log "brew installation complete"
     brew --version
 }
 
@@ -121,10 +111,9 @@ ensure_homebrew() {
 ensure_rosetta() {
 
     arch="$(uname -m)"
-    log "detected architecture: $arch"
+    log "architecture: $arch"
 
     if [ "$arch" != "arm64" ]; then
-        log "not arm64, skipping rosetta"
         return
     fi
 
@@ -138,6 +127,30 @@ ensure_rosetta() {
 }
 
 ############################################
+# reset dock once
+############################################
+reset_dock_once() {
+
+    dock_flag="$HOME/.macos_desiredstate_dock_reset_done"
+
+    if [ -f "$dock_flag" ]; then
+        log "dock already reset previously. skipping."
+        return
+    fi
+
+    log "performing one-time full dock reset"
+
+    defaults write com.apple.dock persistent-apps -array
+    defaults write com.apple.dock persistent-others -array
+
+    killall Dock
+
+    touch "$dock_flag"
+
+    log "dock reset complete (will not run again)"
+}
+
+############################################
 # fetch brewfile
 ############################################
 fetch_brewfile() {
@@ -147,10 +160,7 @@ fetch_brewfile() {
 
     curl -v -f -L "$brewfile_url" -o "$brewfile"
 
-    log "brewfile saved to $brewfile"
     ls -l "$brewfile"
-
-    log "brewfile content:"
     cat "$brewfile"
 }
 
@@ -164,16 +174,9 @@ ensure_brew_bundle() {
         return
     fi
 
-    log "running brew update"
     brew update
-
-    log "running brew upgrade"
     brew upgrade
-
-    log "running brew bundle"
     brew bundle --file="$brewfile" --verbose
-
-    log "brew bundle complete"
 }
 
 ############################################
@@ -182,7 +185,6 @@ ensure_brew_bundle() {
 ensure_mas_login() {
 
     if ! command -v mas >/dev/null 2>&1; then
-        log "mas not installed"
         return
     fi
 
@@ -198,10 +200,7 @@ ensure_mas_login() {
 ############################################
 cleanup() {
 
-    log "running brew autoremove"
     brew autoremove || true
-
-    log "running brew cleanup"
     brew cleanup || true
 }
 
@@ -215,6 +214,9 @@ main() {
     ensure_clt
     ensure_homebrew
     ensure_rosetta
+
+    reset_dock_once
+
     fetch_brewfile
     ensure_brew_bundle
     ensure_mas_login
