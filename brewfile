@@ -3,6 +3,7 @@ brew "git"
 brew "wget"
 brew "htop"
 brew "gping"
+brew "zsh"
 
 
 # package managers / dev
