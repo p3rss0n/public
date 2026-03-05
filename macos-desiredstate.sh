@@ -18,13 +18,13 @@ log() {
 ############################################
 # prevent running as root
 ############################################
-if [ "$euid" = "0" ] 2>/dev/null; then
+if [ "$EUID" -eq 0 ]; then
     echo "do not run this script with sudo."
     exit 1
 fi
 
 ############################################
-# ensure temp directory
+# prepare temp directory
 ############################################
 log "creating temp dir: $tmp_dir"
 mkdir -p "$tmp_dir"
@@ -35,19 +35,19 @@ ls -ld "$tmp_dir"
 ############################################
 ensure_clt() {
 
-    log "checking command line tools..."
+    log "checking command line tools"
 
     if xcode-select -p >/dev/null 2>&1; then
-        log "command line tools already installed."
+        log "command line tools already installed"
         xcode-select -p
         return
     fi
 
-    log "triggering clt install via softwareupdate"
+    log "installing clt using brew method"
 
     sudo touch /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
 
-    log "available software updates:"
+    log "listing available software updates"
     softwareupdate -l || true
 
     clt_label=$(
@@ -57,13 +57,13 @@ ensure_clt() {
         | head -n 1
     )
 
-    log "detected clt label: $clt_label"
+    log "detected clt label: ${clt_label:-none}"
 
-    if [ -n "$clt_label" ]; then
-        log "installing: $clt_label"
+    if [ -n "${clt_label:-}" ]; then
+        log "installing ${clt_label}"
         sudo softwareupdate -i "$clt_label" --verbose
         sudo rm -f /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
-        log "clt installation complete."
+        log "clt installation complete"
     else
         sudo rm -f /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
         log "clt not available via softwareupdate"
@@ -78,7 +78,7 @@ ensure_clt() {
 ############################################
 ensure_homebrew() {
 
-    log "checking homebrew presence"
+    log "checking for homebrew"
 
     if [ -x "/opt/homebrew/bin/brew" ]; then
         eval "$(/opt/homebrew/bin/brew shellenv)"
@@ -94,12 +94,13 @@ ensure_homebrew() {
         return
     fi
 
-    log "brew not found. installing..."
-    log "downloading from: https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
+    log "brew not found, installing"
 
-    curl -v -f -L https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o "$tmp_dir/brew-install.sh"
+    brew_install_url="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
+    log "downloading brew installer from $brew_install_url"
 
-    log "downloaded to $tmp_dir/brew-install.sh"
+    curl -v -f -L "$brew_install_url" -o "$tmp_dir/brew-install.sh"
+
     ls -l "$tmp_dir/brew-install.sh"
 
     /bin/bash "$tmp_dir/brew-install.sh"
@@ -115,20 +116,20 @@ ensure_homebrew() {
 }
 
 ############################################
-# ensure rosetta (arm only)
+# ensure rosetta (apple silicon only)
 ############################################
 ensure_rosetta() {
 
-    arch=$(uname -m)
-    log "architecture detected: $arch"
+    arch="$(uname -m)"
+    log "detected architecture: $arch"
 
     if [ "$arch" != "arm64" ]; then
-        log "not arm64. skipping rosetta."
+        log "not arm64, skipping rosetta"
         return
     fi
 
     if /usr/bin/pgrep oahd >/dev/null 2>&1; then
-        log "rosetta already installed."
+        log "rosetta already installed"
         return
     fi
 
@@ -137,17 +138,16 @@ ensure_rosetta() {
 }
 
 ############################################
-# fetch brewfile from github
+# fetch brewfile
 ############################################
 fetch_brewfile() {
 
     brewfile_url="$repo_raw_base/brewfile"
-
-    log "fetching brewfile from: $brewfile_url"
+    log "fetching brewfile from $brewfile_url"
 
     curl -v -f -L "$brewfile_url" -o "$brewfile"
 
-    log "brewfile saved to: $brewfile"
+    log "brewfile saved to $brewfile"
     ls -l "$brewfile"
 
     log "brewfile content:"
@@ -160,7 +160,7 @@ fetch_brewfile() {
 ensure_brew_bundle() {
 
     if [ ! -f "$brewfile" ]; then
-        log "brewfile missing. skipping bundle."
+        log "brewfile missing, skipping bundle"
         return
     fi
 
@@ -173,11 +173,11 @@ ensure_brew_bundle() {
     log "running brew bundle"
     brew bundle --file="$brewfile" --verbose
 
-    log "brew bundle finished"
+    log "brew bundle complete"
 }
 
 ############################################
-# mas login check
+# ensure mas login
 ############################################
 ensure_mas_login() {
 
@@ -210,7 +210,7 @@ cleanup() {
 ############################################
 main() {
 
-    log "starting macos desired state (full debug)"
+    log "starting macos desired state"
 
     ensure_clt
     ensure_homebrew
