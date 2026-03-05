@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ############################################
-# macos-desiredstate.sh
+# macos-desiredstate.gsh
 # Ensures macOS matches desired state
 ############################################
 
