@@ -196,7 +196,7 @@ ensure_mas_login() {
 }
 
 ############################################
-# setup daily backup v2 (smb + retention)
+# setup daily backup v3 (logging + idempotent)
 ############################################
 setup_daily_backup() {
 
@@ -209,13 +209,23 @@ setup_daily_backup() {
     mkdir -p "$launchagent_dir"
 
     ########################################
-    # write backup script (always enforce version)
+    # write/update backup script (managed)
     ########################################
 
-    log "writing daily_backup.sh (managed by bootstrap)"
+    if [ ! -f "$backup_script" ]; then
+        log "creating daily_backup.sh"
+    else
+        log "daily_backup.sh exists, updating to managed version"
+    fi
 
     cat > "$backup_script" <<'EOF'
 #!/bin/bash
+
+LOG_FILE="$HOME/backup/backup.log"
+exec >> "$LOG_FILE" 2>&1
+
+echo "======================================="
+echo "$(date) - backup started"
 
 SOURCE_DIR="$HOME/Desktop"
 LOCAL_BACKUP_DIR="$HOME/backup"
@@ -225,34 +235,26 @@ MOUNT_POINT="/Volumes/dailybackup"
 mkdir -p "$LOCAL_BACKUP_DIR"
 
 ############################################
-# ask for smb config if not set
+# ask for smb config
 ############################################
 
 if [ ! -f "$CONFIG_FILE" ]; then
+    echo "no smb config found, prompting user"
 
     SMB_URL=$(osascript -e 'text returned of (display dialog "Enter SMB path (example: smb://server/share)" default answer "")')
-
     SMB_USER=$(osascript -e 'text returned of (display dialog "Enter SMB username" default answer "")')
-
     SMB_PASS=$(osascript -e 'text returned of (display dialog "Enter SMB password" default answer "" with hidden answer)')
 
     echo "$SMB_URL" > "$CONFIG_FILE"
     echo "$SMB_USER" >> "$CONFIG_FILE"
 
-    security add-internet-password \
-        -a "$SMB_USER" \
-        -s "$SMB_URL" \
-        -w "$SMB_PASS" \
-        -U
-fi
+    security add-internet-password -a "$SMB_USER" -s "$SMB_URL" -w "$SMB_PASS" -U
 
-############################################
-# load config
-############################################
+    echo "smb config stored"
+fi
 
 SMB_URL=$(sed -n '1p' "$CONFIG_FILE")
 SMB_USER=$(sed -n '2p' "$CONFIG_FILE")
-
 SMB_PASS=$(security find-internet-password -a "$SMB_USER" -s "$SMB_URL" -w 2>/dev/null)
 
 ############################################
@@ -263,12 +265,16 @@ TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 DAILY_NAME="daily_$TIMESTAMP.tar.gz"
 LOCAL_FILE="$LOCAL_BACKUP_DIR/$DAILY_NAME"
 
+echo "creating archive $LOCAL_FILE"
+
 tar -czf "$LOCAL_FILE" -C "$SOURCE_DIR" .
+echo "archive created"
 
 ############################################
 # local retention daily (keep 3)
 ############################################
 
+echo "applying local daily retention"
 ls -t "$LOCAL_BACKUP_DIR"/daily_*.tar.gz 2>/dev/null | tail -n +4 | xargs -r rm
 
 ############################################
@@ -278,12 +284,13 @@ ls -t "$LOCAL_BACKUP_DIR"/daily_*.tar.gz 2>/dev/null | tail -n +4 | xargs -r rm
 DAY_OF_WEEK=$(date +%u)
 
 if [ "$DAY_OF_WEEK" -eq 7 ]; then
-
     WEEKLY_NAME="weekly_$TIMESTAMP.tar.gz"
     WEEKLY_FILE="$LOCAL_BACKUP_DIR/$WEEKLY_NAME"
 
+    echo "creating weekly backup"
     cp "$LOCAL_FILE" "$WEEKLY_FILE"
 
+    echo "applying local weekly retention"
     ls -t "$LOCAL_BACKUP_DIR"/weekly_*.tar.gz 2>/dev/null | tail -n +3 | xargs -r rm
 fi
 
@@ -292,40 +299,54 @@ fi
 ############################################
 
 if ! mount | grep -q "$MOUNT_POINT"; then
+    echo "mounting smb share"
     mkdir -p "$MOUNT_POINT"
     mount_smbfs "//$SMB_USER:$SMB_PASS@${SMB_URL#smb://}" "$MOUNT_POINT"
+
+    if [ $? -ne 0 ]; then
+        echo "smb mount failed"
+        exit 1
+    fi
+
+    echo "smb mounted"
+else
+    echo "smb already mounted"
 fi
 
 ############################################
 # copy to smb
 ############################################
 
+echo "copying backup to smb"
 cp "$LOCAL_FILE" "$MOUNT_POINT/"
 
 ############################################
 # smb retention daily (14)
 ############################################
 
+echo "applying smb daily retention"
 ls -t "$MOUNT_POINT"/daily_*.tar.gz 2>/dev/null | tail -n +15 | xargs -r rm
 
 ############################################
 # smb retention weekly (8)
 ############################################
 
+echo "applying smb weekly retention"
 ls -t "$MOUNT_POINT"/weekly_*.tar.gz 2>/dev/null | tail -n +9 | xargs -r rm
 
-osascript -e 'display notification "Backup completed successfully." with title "Daily Backup"'
+echo "$(date) - backup completed"
 EOF
 
     chmod +x "$backup_script"
 
     ########################################
-    # write launchagent (hourly)
+    # launchagent setup (idempotent)
     ########################################
 
-    log "writing launchagent"
+    if [ ! -f "$launchagent_file" ]; then
+        log "creating launchagent"
 
-    cat > "$launchagent_file" <<EOF
+        cat > "$launchagent_file" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
 "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -350,10 +371,18 @@ EOF
 </plist>
 EOF
 
-    launchctl unload "$launchagent_file" 2>/dev/null || true
-    launchctl load "$launchagent_file"
+        launchctl load "$launchagent_file"
+        log "launchagent created and loaded"
+    else
+        log "launchagent already exists"
 
-    log "daily backup setup complete"
+        if ! launchctl list | grep -q "com.local.dailybackup"; then
+            log "launchagent not loaded, loading"
+            launchctl load "$launchagent_file"
+        fi
+    fi
+
+    log "daily backup setup verified"
 }
 
 ############################################
