@@ -196,6 +196,117 @@ ensure_mas_login() {
 }
 
 ############################################
+# setup daily backup (idempotent)
+############################################
+setup_daily_backup() {
+
+    log "checking daily backup setup"
+
+    backup_script="$HOME/daily_backup.sh"
+    launchagent_dir="$HOME/Library/LaunchAgents"
+    launchagent_file="$launchagent_dir/com.local.dailybackup.plist"
+
+    mkdir -p "$launchagent_dir"
+
+    ########################################
+    # create backup script if missing
+    ########################################
+
+    if [ ! -f "$backup_script" ]; then
+        log "creating daily_backup.sh"
+
+        cat > "$backup_script" <<'EOF'
+#!/bin/bash
+
+BACKUP_DIR="/backup"
+SOURCE_DIR="$HOME/Desktop"
+TIMESTAMP_FILE="$BACKUP_DIR/.last_daily_backup"
+
+mkdir -p "$BACKUP_DIR"
+
+NOW=$(date +%s)
+
+if [ -f "$TIMESTAMP_FILE" ]; then
+    LAST_BACKUP=$(cat "$TIMESTAMP_FILE")
+    DIFF=$((NOW - LAST_BACKUP))
+
+    if [ $DIFF -lt 86400 ]; then
+        exit 0
+    fi
+fi
+
+osascript <<EOD
+display dialog "No Daily Backup has been completed in the last 24 hours. Run backup now?" buttons {"No","Yes"} default button "Yes"
+EOD
+
+if [ $? -eq 0 ]; then
+
+    TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
+    DEST="$BACKUP_DIR/daily_backup_$TIMESTAMP"
+
+    rsync -a "$SOURCE_DIR/" "$DEST/"
+
+    date +%s > "$TIMESTAMP_FILE"
+
+    osascript -e 'display notification "Daily Backup completed." with title "Daily Backup"'
+fi
+EOF
+
+        chmod +x "$backup_script"
+        log "daily_backup.sh created"
+    else
+        log "daily_backup.sh already exists"
+    fi
+
+    ########################################
+    # create launchagent if missing
+    ########################################
+
+    if [ ! -f "$launchagent_file" ]; then
+        log "creating launchagent"
+
+        cat > "$launchagent_file" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+"http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+
+<plist version="1.0">
+<dict>
+
+    <key>Label</key>
+    <string>com.local.dailybackup</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>$backup_script</string>
+    </array>
+
+    <key>StartInterval</key>
+    <integer>3600</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+</dict>
+</plist>
+EOF
+
+        launchctl load "$launchagent_file"
+        log "launchagent created and loaded"
+    else
+        log "launchagent already exists"
+
+        # ensure it's loaded
+        if ! launchctl list | grep -q "com.local.dailybackup"; then
+            log "launchagent not loaded, loading now"
+            launchctl load "$launchagent_file"
+        fi
+    fi
+
+    log "daily backup setup verified"
+}
+
+############################################
 # cleanup
 ############################################
 cleanup() {
@@ -216,6 +327,8 @@ main() {
     ensure_rosetta
 
     reset_dock_once
+
+    setup_daily_backup
 
     fetch_brewfile
     ensure_brew_bundle
