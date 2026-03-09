@@ -6,7 +6,6 @@ brew "gping"
 brew "zsh"
 brew "cloudflared"
 brew "qemu"
-brew "qemu-img"
 brew "virt-manager"
 
 
