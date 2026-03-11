@@ -7,7 +7,6 @@ brew "zsh"
 brew "cloudflared"
 brew "qemu"
 brew "virt-manager"
-brew "obsidian"
 
 
 # package managers / dev
@@ -24,3 +23,4 @@ cask "alt-tab"
 cask "logi-options+"
 cask "spotify"
 cask "rectangle"
+cask "obsidian"
