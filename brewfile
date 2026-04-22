@@ -8,6 +8,7 @@ brew "cloudflared"
 brew "qemu"
 brew "virt-manager"
 brew "syncthing"
+brew "docker"
 
 
 # package managers / dev
