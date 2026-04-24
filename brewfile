@@ -9,6 +9,7 @@ brew "qemu"
 brew "virt-manager"
 brew "syncthing"
 brew "docker"
+brew "azure-cli"
 
 
 # package managers / dev
