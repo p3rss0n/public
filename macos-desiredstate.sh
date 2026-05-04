@@ -143,6 +143,9 @@ reset_dock_once() {
     defaults write com.apple.dock persistent-apps -array
     defaults write com.apple.dock persistent-others -array
 
+    # disable recent applications in Dock
+    defaults write com.apple.dock show-recents -bool false
+
     killall Dock
 
     touch "$dock_flag"
